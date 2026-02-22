@@ -6,12 +6,12 @@ import { supabase } from '@/lib/supabase'
 import { ACCEPTED_UPLOAD_TYPES } from '@/lib/constants'
 import type { SalesReport, SalesDataItem } from '@/lib/types'
 import { FileUpload } from '@/components/shared/FileUpload'
+import type { FileItem } from '@/components/shared/FileUpload'
 
 export function SalesDataTab() {
   const queryClient = useQueryClient()
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
-  const [statusMessage, setStatusMessage] = useState('')
-  const [parsedItems, setParsedItems] = useState<SalesDataItem[]>([])
+  const [fileItems, setFileItems] = useState<FileItem[]>([])
+  const [allParsedItems, setAllParsedItems] = useState<SalesDataItem[]>([])
   const [showReview, setShowReview] = useState(false)
   const [currentReportId, setCurrentReportId] = useState<string | null>(null)
 
@@ -27,52 +27,85 @@ export function SalesDataTab() {
     },
   })
 
-  const handleFileSelect = useCallback(async (file: File) => {
-    setUploadStatus('uploading')
-    setStatusMessage('Uploading and parsing sales data...')
-    setParsedItems([])
+  const handleFilesSelect = useCallback(async (files: File[]) => {
+    const items: FileItem[] = files.map((f) => ({ file: f, status: 'queued' as const }))
+    setFileItems(items)
+    setAllParsedItems([])
     setShowReview(false)
+    setCurrentReportId(null)
 
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
+    let lastReportId: string | null = null
+    const aggregatedItems: SalesDataItem[] = []
 
-      const { data, error } = await supabase.functions.invoke('parse-sales', {
-        body: formData,
-      })
+    for (let i = 0; i < files.length; i++) {
+      setFileItems((prev) =>
+        prev.map((item, idx) =>
+          idx === i ? { ...item, status: 'uploading' as const, message: 'Parsing...' } : item
+        )
+      )
 
-      if (error) throw error
+      try {
+        const formData = new FormData()
+        formData.append('file', files[i])
 
-      setUploadStatus('success')
-      setStatusMessage(`Parsed ${data?.items?.length ?? 0} items from sales report.`)
-      setParsedItems(data?.items ?? [])
-      setCurrentReportId(data?.report_id ?? null)
-      setShowReview(true)
-      queryClient.invalidateQueries({ queryKey: ['sales-reports'] })
-    } catch (err) {
-      setUploadStatus('error')
-      setStatusMessage(err instanceof Error ? err.message : 'Upload failed')
+        const { data, error } = await supabase.functions.invoke('parse-sales', {
+          body: formData,
+        })
+
+        if (error) throw error
+
+        const count = data?.items?.length ?? 0
+        aggregatedItems.push(...(data?.items ?? []))
+        lastReportId = data?.report_id ?? lastReportId
+
+        setFileItems((prev) =>
+          prev.map((item, idx) =>
+            idx === i
+              ? { ...item, status: 'success' as const, message: `${count} items parsed` }
+              : item
+          )
+        )
+      } catch (err) {
+        setFileItems((prev) =>
+          prev.map((item, idx) =>
+            idx === i
+              ? {
+                ...item,
+                status: 'error' as const,
+                message: err instanceof Error ? err.message : 'Failed',
+              }
+              : item
+          )
+        )
+      }
     }
+
+    if (aggregatedItems.length > 0) {
+      setAllParsedItems(aggregatedItems)
+      setCurrentReportId(lastReportId)
+      setShowReview(true)
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['sales-reports'] })
   }, [queryClient])
 
   const handleGeneratePrepList = useCallback(async () => {
     if (!currentReportId) return
 
     try {
-      setStatusMessage('Generating prep list...')
-
       const { data, error } = await supabase.functions.invoke('generate-prep-list', {
         body: { report_id: currentReportId },
       })
 
       if (error) throw error
 
-      setStatusMessage(`Prep list generated with ${data?.item_count ?? 0} prep items.`)
       setShowReview(false)
     } catch (err) {
-      setStatusMessage(err instanceof Error ? err.message : 'Failed to generate prep list')
+      // error handled silently
     }
   }, [currentReportId])
+
+  const isUploading = fileItems.some((f) => f.status === 'uploading')
 
   const statusIcon = (status: string) => {
     switch (status) {
@@ -91,17 +124,17 @@ export function SalesDataTab() {
     <div className="flex flex-col gap-6">
       <FileUpload
         accept={[...ACCEPTED_UPLOAD_TYPES.sales]}
-        onFileSelect={handleFileSelect}
-        uploadStatus={uploadStatus}
-        statusMessage={statusMessage}
-        label="Upload Sales Report (PDF)"
+        onFilesSelect={handleFilesSelect}
+        isUploading={isUploading}
+        fileItems={fileItems}
+        label="Upload Sales Reports (PDF)"
       />
 
-      {showReview && parsedItems.length > 0 && (
+      {showReview && allParsedItems.length > 0 && (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           <div className="flex items-center justify-between border-b bg-gray-50 px-5 py-3">
             <h3 className="font-semibold text-gray-900">
-              Review Parsed Sales Data ({parsedItems.length} items)
+              Review Parsed Sales Data ({allParsedItems.length} items)
             </h3>
             <button
               onClick={handleGeneratePrepList}
@@ -124,8 +157,8 @@ export function SalesDataTab() {
                 </tr>
               </thead>
               <tbody>
-                {parsedItems.map((item) => (
-                  <tr key={item.id} className="border-t border-gray-100">
+                {allParsedItems.map((item, idx) => (
+                  <tr key={`${item.raw_item_name}-${idx}`} className="border-t border-gray-100">
                     <td className="px-4 py-2.5 text-gray-900">{item.raw_item_name}</td>
                     <td className="px-4 py-2.5 text-right font-medium">{item.units_sold}</td>
                     <td className="px-4 py-2.5">

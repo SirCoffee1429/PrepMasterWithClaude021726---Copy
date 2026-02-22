@@ -1,26 +1,33 @@
 import { useCallback, useState, useRef } from 'react'
-import { Upload, X, FileText, CheckCircle, AlertCircle } from 'lucide-react'
+import { Upload, X, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB } from '@/lib/constants'
+
+export type FileStatus = 'queued' | 'uploading' | 'success' | 'error'
+
+export interface FileItem {
+  file: File
+  status: FileStatus
+  message?: string
+}
 
 interface FileUploadProps {
   readonly accept: ReadonlyArray<string>
-  readonly onFileSelect: (file: File) => void
+  readonly onFilesSelect: (files: File[]) => void
+  readonly multiple?: boolean
   readonly isUploading?: boolean
-  readonly uploadStatus?: 'idle' | 'uploading' | 'success' | 'error'
-  readonly statusMessage?: string
+  readonly fileItems?: ReadonlyArray<FileItem>
   readonly label?: string
 }
 
 export function FileUpload({
   accept,
-  onFileSelect,
+  onFilesSelect,
+  multiple = true,
   isUploading = false,
-  uploadStatus = 'idle',
-  statusMessage,
-  label = 'Upload File',
+  fileItems = [],
+  label = 'Upload Files',
 }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -28,59 +35,74 @@ export function FileUpload({
 
   const validateFile = useCallback(
     (file: File): boolean => {
-      setValidationError(null)
-
       const extension = `.${file.name.split('.').pop()?.toLowerCase()}`
       if (!accept.includes(extension)) {
-        setValidationError(`Invalid file type. Accepted: ${accept.join(', ')}`)
         return false
       }
-
       if (file.size > MAX_FILE_SIZE_BYTES) {
-        setValidationError(`File too large. Maximum size: ${MAX_FILE_SIZE_MB}MB`)
         return false
       }
-
       return true
     },
     [accept]
   )
 
-  const handleFile = useCallback(
-    (file: File) => {
-      if (validateFile(file)) {
-        setSelectedFile(file)
-        onFileSelect(file)
+  const handleFiles = useCallback(
+    (rawFiles: FileList | File[]) => {
+      setValidationError(null)
+      const files = Array.from(rawFiles)
+
+      const invalid = files.filter((f) => !validateFile(f))
+      if (invalid.length > 0) {
+        const names = invalid.map((f) => f.name).join(', ')
+        setValidationError(
+          `Skipped invalid files: ${names}. Accepted: ${accept.join(', ')} (max ${MAX_FILE_SIZE_MB}MB)`
+        )
+      }
+
+      const valid = files.filter((f) => validateFile(f))
+      if (valid.length > 0) {
+        onFilesSelect(valid)
       }
     },
-    [validateFile, onFileSelect]
+    [validateFile, onFilesSelect, accept]
   )
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
       setIsDragging(false)
-      const file = e.dataTransfer.files[0]
-      if (file) handleFile(file)
+      if (e.dataTransfer.files.length > 0) {
+        handleFiles(e.dataTransfer.files)
+      }
     },
-    [handleFile]
+    [handleFiles]
   )
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (file) handleFile(file)
+      if (e.target.files && e.target.files.length > 0) {
+        handleFiles(e.target.files)
+      }
+      // Reset input so the same files can be selected again
+      if (inputRef.current) inputRef.current.value = ''
     },
-    [handleFile]
+    [handleFiles]
   )
 
-  const clearFile = useCallback(() => {
-    setSelectedFile(null)
-    setValidationError(null)
-    if (inputRef.current) {
-      inputRef.current.value = ''
-    }
-  }, [])
+  const overallStatus = fileItems.length === 0
+    ? 'idle'
+    : fileItems.every((f) => f.status === 'success')
+      ? 'success'
+      : fileItems.some((f) => f.status === 'error')
+        ? 'error'
+        : fileItems.some((f) => f.status === 'uploading')
+          ? 'uploading'
+          : 'idle'
+
+  const completedCount = fileItems.filter(
+    (f) => f.status === 'success' || f.status === 'error'
+  ).length
 
   return (
     <div className="w-full">
@@ -103,13 +125,14 @@ export function FileUpload({
           ref={inputRef}
           type="file"
           accept={acceptString}
+          multiple={multiple}
           onChange={handleChange}
           className="hidden"
         />
 
-        {uploadStatus === 'success' ? (
+        {overallStatus === 'success' ? (
           <CheckCircle className="h-10 w-10 text-green-500" />
-        ) : uploadStatus === 'error' ? (
+        ) : overallStatus === 'error' ? (
           <AlertCircle className="h-10 w-10 text-red-500" />
         ) : (
           <Upload className="h-10 w-10 text-gray-400" />
@@ -118,40 +141,56 @@ export function FileUpload({
         <div className="text-center">
           <p className="text-base font-medium text-gray-700">{label}</p>
           <p className="mt-1 text-sm text-gray-500">
-            Drag & drop or click to browse
+            Drag & drop or click to browse{multiple ? ' (multiple files OK)' : ''}
           </p>
           <p className="mt-1 text-xs text-gray-400">
-            Accepted: {accept.join(', ')} (max {MAX_FILE_SIZE_MB}MB)
+            Accepted: {accept.join(', ')} (max {MAX_FILE_SIZE_MB}MB each)
           </p>
         </div>
       </div>
 
-      {selectedFile && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2">
-          <FileText className="h-4 w-4 text-gray-500" />
-          <span className="flex-1 truncate text-sm text-gray-700">
-            {selectedFile.name}
-          </span>
-          {!isUploading && (
-            <button onClick={clearFile} className="p-1 hover:bg-gray-200 rounded">
-              <X className="h-4 w-4 text-gray-400" />
-            </button>
+      {/* Progress summary */}
+      {fileItems.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {fileItems.length > 1 && (
+            <p className="text-sm font-medium text-gray-600 mb-2">
+              {overallStatus === 'uploading'
+                ? `Processing ${completedCount + 1} of ${fileItems.length} files...`
+                : `${completedCount} of ${fileItems.length} files processed`}
+            </p>
           )}
+          {fileItems.map((item, index) => (
+            <div
+              key={`${item.file.name}-${index}`}
+              className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2"
+            >
+              {item.status === 'uploading' ? (
+                <Loader2 className="h-4 w-4 text-brand-500 animate-spin shrink-0" />
+              ) : item.status === 'success' ? (
+                <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+              ) : item.status === 'error' ? (
+                <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+              ) : (
+                <FileText className="h-4 w-4 text-gray-400 shrink-0" />
+              )}
+              <span className="flex-1 truncate text-sm text-gray-700">
+                {item.file.name}
+              </span>
+              {item.message && (
+                <span
+                  className={`text-xs shrink-0 ${item.status === 'error' ? 'text-red-600' : 'text-gray-500'
+                    }`}
+                >
+                  {item.message}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
       {validationError && (
         <p className="mt-2 text-sm text-red-600">{validationError}</p>
-      )}
-
-      {statusMessage && (
-        <p
-          className={`mt-2 text-sm ${
-            uploadStatus === 'error' ? 'text-red-600' : 'text-gray-600'
-          }`}
-        >
-          {statusMessage}
-        </p>
       )}
     </div>
   )

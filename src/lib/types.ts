@@ -18,6 +18,7 @@ export interface Ingredient {
   readonly name: string
   readonly station_id: string | null
   readonly unit: string
+  readonly par_level: number
   readonly recipe_file_url: string | null
   readonly recipe_data: RecipeData | null
   readonly created_at: string
