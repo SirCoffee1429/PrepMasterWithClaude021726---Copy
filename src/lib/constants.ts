@@ -1,9 +1,9 @@
 export const APP_NAME = 'Prep Master'
 
 export const STATIONS = ['Grill', 'Salad', 'Sautee', 'Flattop', 'Fry'] as const
-export type StationName = (typeof STATIONS)[number]
 
-export const PREP_THRESHOLD_DEFAULT = 0.5
+
+
 
 export const REALTIME_CHANNEL = 'prep-list-changes'
 

@@ -57,24 +57,28 @@ export function ParLevelsTab() {
         }
       })
       for (const update of updates) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('ingredients')
           .update({ par_level: update.par_level, unit: update.unit })
           .eq('id', update.id)
+          .select('id')
         if (error) throw error
+        if (!data || data.length === 0) throw new Error('Permission denied or ingredient missing')
       }
     },
     onSuccess: () => {
       setEditedPars(new Map())
       queryClient.invalidateQueries({ queryKey: ['ingredients-with-stations'] })
     },
+    onError: (err) => alert(err.message),
   })
 
   // ── Delete ingredient ──
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('ingredients').delete().eq('id', id)
+      const { data, error } = await supabase.from('ingredients').delete().eq('id', id).select('id')
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('Permission denied or ingredient missing')
     },
     onSuccess: () => {
       setDeleteTarget(null)
@@ -82,17 +86,20 @@ export function ParLevelsTab() {
       queryClient.invalidateQueries({ queryKey: ['menu-items-with-components'] })
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
+    onError: (err) => alert(err.message),
   })
 
   // ── Rename ingredient ──
   const renameMutation = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
-      const { error } = await supabase.from('ingredients').update({ name }).eq('id', id)
+      const { data, error } = await supabase.from('ingredients').update({ name }).eq('id', id).select('id')
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('Permission denied or ingredient missing')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ingredients-with-stations'] })
     },
+    onError: (err) => alert(err.message),
   })
 
   const handleParChange = useCallback((ingredientId: string, value: string) => {
@@ -447,7 +454,7 @@ function IngredientRow({
           <input
             type="number"
             min="0"
-            step="0.01"
+            step="1"
             value={getParValue(ingredient)}
             onChange={(e) => onParChange(ingredient.id, e.target.value)}
             placeholder="—"
@@ -508,7 +515,7 @@ function IngredientRow({
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="1"
                     value={getParValue(compIngredient)}
                     onChange={(e) => onParChange(compIngredient.id, e.target.value)}
                     placeholder="—"

@@ -56,13 +56,6 @@ export interface BillOfMaterial {
   readonly ingredient?: Ingredient
 }
 
-export interface ParLevel {
-  readonly id: string
-  readonly ingredient_id: string
-  readonly day_of_week: number
-  readonly par_quantity: number
-  readonly ingredient?: Ingredient
-}
 
 export interface SalesReport {
   readonly id: string
@@ -109,18 +102,3 @@ export interface PrepListItem {
   readonly assigned_user?: Profile
 }
 
-export const DAYS_OF_WEEK = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-] as const
-
-export const PREP_STATUS_LABELS: Record<PrepItemStatus, string> = {
-  open: 'Open',
-  in_progress: 'In Progress',
-  completed: 'Completed',
-}

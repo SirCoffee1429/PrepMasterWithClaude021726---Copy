@@ -1,5 +1,5 @@
 import { useCallback, useState, useRef } from 'react'
-import { Upload, X, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB } from '@/lib/constants'
 
 export type FileStatus = 'queued' | 'uploading' | 'success' | 'error'

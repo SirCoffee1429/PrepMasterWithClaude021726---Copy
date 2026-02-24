@@ -93,7 +93,7 @@ export function SalesDataTab() {
     if (!currentReportId) return
 
     try {
-      const { data, error } = await supabase.functions.invoke('generate-prep-list', {
+      const { error } = await supabase.functions.invoke('generate-prep-list', {
         body: { report_id: currentReportId },
       })
 
