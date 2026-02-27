@@ -20,6 +20,8 @@ export function ParLevelsTab() {
   const [crossFileDuplicates, setCrossFileDuplicates] = useState<string[]>([])
   const [expandedRecipes, setExpandedRecipes] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [showClearAllPars, setShowClearAllPars] = useState(false)
+  const [showDeleteAll, setShowDeleteAll] = useState(false)
 
   const { data: ingredients = [] } = useQuery({
     queryKey: ['ingredients-with-stations'],
@@ -87,6 +89,44 @@ export function ParLevelsTab() {
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
     onError: (err) => alert(err.message),
+  })
+
+  // ── Clear all par levels ──
+  const clearAllParsMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from('ingredients')
+        .update({ par_level: 0, unit: '' })
+        .gt('par_level', 0)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setShowClearAllPars(false)
+      setEditedPars(new Map())
+      queryClient.invalidateQueries({ queryKey: ['ingredients-with-stations'] })
+    },
+    onError: (err) => alert(err.message),
+  })
+
+  // ── Delete all ingredients ──
+  const deleteAllIngredientsMutation = useMutation({
+    mutationFn: async () => {
+      // Must respect FK order: prep_list_items → bill_of_materials → ingredients
+      const { error: pliErr } = await supabase.from('prep_list_items').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (pliErr) throw pliErr
+      const { error: bomErr } = await supabase.from('bill_of_materials').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (bomErr) throw bomErr
+      const { error: ingErr } = await supabase.from('ingredients').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (ingErr) throw ingErr
+    },
+    onSuccess: () => {
+      setShowDeleteAll(false)
+      setEditedPars(new Map())
+      queryClient.invalidateQueries({ queryKey: ['ingredients-with-stations'] })
+      queryClient.invalidateQueries({ queryKey: ['menu-items-with-components'] })
+      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : 'Failed to delete'),
   })
 
   // ── Rename ingredient ──
@@ -244,17 +284,38 @@ export function ParLevelsTab() {
 
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Par Level Grid</h3>
-        {editedPars.size > 0 && (
-          <button
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2
-              text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50"
-          >
-            <Save className="h-4 w-4" />
-            Save Changes ({editedPars.size})
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {filteredIngredients.length > 0 && (
+            <button
+              onClick={() => setShowDeleteAll(true)}
+              className="flex items-center gap-2 rounded-lg border border-red-300 px-4 py-2
+                text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete All
+            </button>
+          )}
+          {filteredIngredients.some(i => i.par_level > 0) && (
+            <button
+              onClick={() => setShowClearAllPars(true)}
+              className="flex items-center gap-2 rounded-lg border border-amber-300 px-4 py-2
+                text-sm font-medium text-amber-600 hover:bg-amber-50 transition-colors"
+            >
+              Clear All Pars
+            </button>
+          )}
+          {editedPars.size > 0 && (
+            <button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2
+                text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" />
+              Save Changes ({editedPars.size})
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
@@ -298,6 +359,24 @@ export function ParLevelsTab() {
         message={`Are you sure you want to delete "${deleteTarget?.name}"? This will also remove it from any menu items and prep lists.`}
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={showClearAllPars}
+        title="Clear All Par Levels"
+        message="This will reset ALL par levels to zero. You can re-import par sheets afterward. Continue?"
+        confirmLabel="Clear All"
+        onConfirm={() => clearAllParsMutation.mutate()}
+        onCancel={() => setShowClearAllPars(false)}
+      />
+
+      <ConfirmDialog
+        open={showDeleteAll}
+        title="Delete All Ingredients & Recipes"
+        message={`This will permanently delete all ${filteredIngredients.length} ingredients and their recipe data, plus remove all BOM links and prep list items. This cannot be undone. Continue?`}
+        confirmLabel="Delete All"
+        onConfirm={() => deleteAllIngredientsMutation.mutate()}
+        onCancel={() => setShowDeleteAll(false)}
       />
     </div>
   )

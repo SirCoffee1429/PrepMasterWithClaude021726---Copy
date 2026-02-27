@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ACCEPTED_UPLOAD_TYPES, STATIONS } from '@/lib/constants'
 import type { MenuItem } from '@/lib/types'
@@ -8,12 +9,14 @@ import type { FileItem } from '@/components/shared/FileUpload'
 import { DuplicateReport } from '@/components/shared/DuplicateReport'
 import type { DuplicateGroup } from '@/components/shared/DuplicateReport'
 import { MenuItemDropdown } from './MenuItemDropdown'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 export function MenuItemsTab() {
   const queryClient = useQueryClient()
   const [fileItems, setFileItems] = useState<FileItem[]>([])
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([])
   const [crossFileDuplicates, setCrossFileDuplicates] = useState<string[]>([])
+  const [showDeleteAll, setShowDeleteAll] = useState(false)
 
   const { data: menuItems = [] } = useQuery({
     queryKey: ['menu-items-with-components'],
@@ -154,6 +157,28 @@ export function MenuItemsTab() {
 
   const isUploading = fileItems.some((f) => f.status === 'uploading')
 
+  // ── Delete all menu items ──
+  const deleteAllMenuItemsMutation = useMutation({
+    mutationFn: async () => {
+      // Delete BOM links first (FK to menu_items)
+      const { error: bomErr } = await supabase.from('bill_of_materials').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (bomErr) throw bomErr
+      // Delete all menu items
+      const { error: miErr } = await supabase.from('menu_items').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (miErr) throw miErr
+    },
+    onSuccess: () => {
+      setShowDeleteAll(false)
+      setFileItems([])
+      setDuplicateGroups([])
+      setCrossFileDuplicates([])
+      queryClient.invalidateQueries({ queryKey: ['menu-items-with-components'] })
+      queryClient.invalidateQueries({ queryKey: ['ingredients-with-stations'] })
+      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : 'Failed to delete'),
+  })
+
   const itemsByStation = new Map<string, MenuItem[]>()
   for (const station of STATIONS) {
     itemsByStation.set(station, [])
@@ -179,9 +204,21 @@ export function MenuItemsTab() {
       <DuplicateReport groups={duplicateGroups} crossFileDuplicates={crossFileDuplicates} />
 
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Menu Items ({menuItems.length})
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">
+            Menu Items ({menuItems.length})
+          </h3>
+          {menuItems.length > 0 && (
+            <button
+              onClick={() => setShowDeleteAll(true)}
+              className="flex items-center gap-2 rounded-lg border border-red-300 px-4 py-2
+                text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete All
+            </button>
+          )}
+        </div>
 
         {Array.from(itemsByStation.entries()).map(([station, items]) =>
           items.length > 0 ? (
@@ -204,6 +241,15 @@ export function MenuItemsTab() {
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showDeleteAll}
+        title="Delete All Menu Items"
+        message={`This will permanently delete all ${menuItems.length} menu items and their recipe component links (BOM). Ingredients and recipes will NOT be deleted. Continue?`}
+        confirmLabel="Delete All"
+        onConfirm={() => deleteAllMenuItemsMutation.mutate()}
+        onCancel={() => setShowDeleteAll(false)}
+      />
     </div>
   )
 }

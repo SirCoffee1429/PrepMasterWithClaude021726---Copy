@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Calendar, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { FileText, Calendar, CheckCircle, AlertCircle, Loader2, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { ACCEPTED_UPLOAD_TYPES } from '@/lib/constants'
 import type { SalesReport, SalesDataItem } from '@/lib/types'
 import { FileUpload } from '@/components/shared/FileUpload'
 import type { FileItem } from '@/components/shared/FileUpload'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 export function SalesDataTab() {
   const queryClient = useQueryClient()
@@ -14,6 +15,7 @@ export function SalesDataTab() {
   const [allParsedItems, setAllParsedItems] = useState<SalesDataItem[]>([])
   const [showReview, setShowReview] = useState(false)
   const [currentReportId, setCurrentReportId] = useState<string | null>(null)
+  const [showDeleteAll, setShowDeleteAll] = useState(false)
 
   const { data: reports = [] } = useQuery({
     queryKey: ['sales-reports'],
@@ -107,6 +109,25 @@ export function SalesDataTab() {
 
   const isUploading = fileItems.some((f) => f.status === 'uploading')
 
+  // ── Delete all sales data ──
+  const deleteAllSalesMutation = useMutation({
+    mutationFn: async () => {
+      // Delete sales_data first (FK to sales_reports)
+      const { error: dataErr } = await supabase.from('sales_data').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (dataErr) throw dataErr
+      const { error: reportErr } = await supabase.from('sales_reports').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (reportErr) throw reportErr
+    },
+    onSuccess: () => {
+      setShowDeleteAll(false)
+      setFileItems([])
+      setAllParsedItems([])
+      setShowReview(false)
+      queryClient.invalidateQueries({ queryKey: ['sales-reports'] })
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : 'Failed to delete'),
+  })
+
   const statusIcon = (status: string) => {
     switch (status) {
       case 'completed':
@@ -177,7 +198,19 @@ export function SalesDataTab() {
       )}
 
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">Upload History</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold text-gray-900">Upload History</h3>
+          {reports.length > 0 && (
+            <button
+              onClick={() => setShowDeleteAll(true)}
+              className="flex items-center gap-2 rounded-lg border border-red-300 px-4 py-2
+                text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete All
+            </button>
+          )}
+        </div>
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           {reports.length > 0 ? (
             <table className="w-full text-sm">
@@ -211,6 +244,15 @@ export function SalesDataTab() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showDeleteAll}
+        title="Delete All Sales Data"
+        message={`This will permanently delete all ${reports.length} sales reports and their associated data. This cannot be undone. Continue?`}
+        confirmLabel="Delete All"
+        onConfirm={() => deleteAllSalesMutation.mutate()}
+        onCancel={() => setShowDeleteAll(false)}
+      />
     </div>
   )
 }

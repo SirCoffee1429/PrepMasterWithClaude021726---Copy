@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 export function RecipesTab() {
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
+  const [showDeleteAll, setShowDeleteAll] = useState(false)
 
   const { data: recipes = [] } = useQuery({
     queryKey: ['recipes'],
@@ -25,21 +26,50 @@ export function RecipesTab() {
     ? recipes.filter((r) => r.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : recipes
 
+  // ── Delete all recipes ──
+  const deleteAllRecipesMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from('ingredients')
+        .update({ recipe_data: null })
+        .not('recipe_data', 'is', null)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      setShowDeleteAll(false)
+      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      queryClient.invalidateQueries({ queryKey: ['ingredients-with-stations'] })
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : 'Failed to delete'),
+  })
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search recipes..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="
-            w-full rounded-xl border border-gray-300 pl-10 pr-4 py-3 text-base
-            focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200
-            placeholder:text-gray-400
-          "
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search recipes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="
+              w-full rounded-xl border border-gray-300 pl-10 pr-4 py-3 text-base
+              focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200
+              placeholder:text-gray-400
+            "
+          />
+        </div>
+        {recipes.length > 0 && (
+          <button
+            onClick={() => setShowDeleteAll(true)}
+            className="flex items-center gap-2 rounded-lg border border-red-300 px-4 py-3
+              text-sm font-medium text-red-600 hover:bg-red-50 transition-colors shrink-0"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete All
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">
@@ -55,6 +85,15 @@ export function RecipesTab() {
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showDeleteAll}
+        title="Delete All Recipes"
+        message={`This will clear recipe data from all ${recipes.length} recipes. The ingredients themselves will be kept. Continue?`}
+        confirmLabel="Delete All"
+        onConfirm={() => deleteAllRecipesMutation.mutate()}
+        onCancel={() => setShowDeleteAll(false)}
+      />
     </div>
   )
 }
