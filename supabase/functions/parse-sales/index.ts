@@ -206,15 +206,19 @@ Deno.serve(async (req) => {
       .from("menu_items")
       .select("id, name, pos_name");
 
+    // name/pos_name → id (for matching)
     const menuItemMap = new Map<string, string>();
+    // id → { id, name } (for response enrichment)
+    const menuItemById = new Map<string, { id: string; name: string }>();
     for (const mi of menuItems ?? []) {
       menuItemMap.set(mi.name.toLowerCase(), mi.id);
+      menuItemById.set(mi.id, { id: mi.id, name: mi.name });
       if (mi.pos_name) {
         menuItemMap.set(mi.pos_name.toLowerCase(), mi.id);
       }
     }
 
-    // ── Insert parsed sales data ──
+    // ── Build parsed sales data ──
     const salesDataRows = parsedItems.map((item) => {
       const matchedId =
         menuItemMap.get(item.item_name.toLowerCase()) ?? null;
@@ -240,12 +244,20 @@ Deno.serve(async (req) => {
       .update({ status: "completed" })
       .eq("id", report.id);
 
+    // ── Build enriched response with menu_item details for the UI ──
+    const responseItems = salesDataRows.map((row) => ({
+      ...row,
+      menu_item: row.menu_item_id
+        ? menuItemById.get(row.menu_item_id) ?? null
+        : null,
+    }));
+
     return new Response(
       JSON.stringify({
         report_id: report.id,
         report_date: reportDate,
-        items: salesDataRows,
-        count: salesDataRows.length,
+        items: responseItems,
+        count: responseItems.length,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
