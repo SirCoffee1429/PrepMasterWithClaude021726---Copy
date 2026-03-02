@@ -102,10 +102,12 @@ export function SalesDataTab() {
       if (error) throw error
 
       setShowReview(false)
+      queryClient.invalidateQueries({ queryKey: ['prep-list-latest'] })
+      queryClient.invalidateQueries({ queryKey: ['prep-items'] })
     } catch (err) {
-      // error handled silently
+      console.error('Failed to generate prep list:', err)
     }
-  }, [currentReportId])
+  }, [currentReportId, queryClient])
 
   const isUploading = fileItems.some((f) => f.status === 'uploading')
 

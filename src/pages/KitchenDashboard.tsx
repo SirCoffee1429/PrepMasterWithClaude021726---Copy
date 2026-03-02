@@ -19,13 +19,15 @@ export function KitchenDashboard() {
   const [selectedItem, setSelectedItem] = useState<PrepListItem | null>(null)
 
   const { data: prepList } = useQuery({
-    queryKey: ['prep-list', today],
+    queryKey: ['prep-list-latest'],
     queryFn: async () => {
       const { data } = await supabase
         .from('prep_lists')
         .select('id, prep_date')
-        .eq('prep_date', today)
-        .single()
+        .lte('prep_date', today)
+        .order('prep_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
       return data
     },
   })
@@ -104,8 +106,8 @@ export function KitchenDashboard() {
         (old) =>
           old
             ? old.map((item) =>
-                item.id === itemId ? { ...item, status: newStatus } : item
-              )
+              item.id === itemId ? { ...item, status: newStatus } : item
+            )
             : []
       )
     },
@@ -155,7 +157,9 @@ export function KitchenDashboard() {
             <div>
               <h1 className="text-xl font-bold text-white">{APP_NAME}</h1>
               <p className="text-sm text-brand-300">
-                {format(new Date(), 'EEEE, MMMM d, yyyy')}
+                {prepList
+                  ? `Prep List for ${format(new Date(prepList.prep_date + 'T00:00:00'), 'EEEE, MMMM d, yyyy')}`
+                  : format(new Date(), 'EEEE, MMMM d, yyyy')}
               </p>
             </div>
           </div>
